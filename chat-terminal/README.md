@@ -1,64 +1,42 @@
-# Chat via terminal
+# Chat Terminal com GPT-4.1
 
-Servidor HTTP em Node.js e cliente em Python 3, sem dependências externas ou
-instalação com pip. As mensagens ficam apenas na memória do servidor: são
-mantidas as últimas 50 e elas desaparecem quando o processo reinicia.
-Após uma reinicialização, reinicie também os clientes para acompanhar os novos
-IDs de mensagem.
+Chat em terminal com servidor Node.js, cliente Python e respostas automáticas da OpenAI. As últimas 100 mensagens ficam em memória enquanto o servidor estiver ligado.
 
-## GitHub e Render
+## Configurar a chave da OpenAI
 
-1. Crie um repositório no GitHub e envie os arquivos desta pasta. Por exemplo,
-   após criar o repositório vazio, execute dentro de `chat-terminal`:
+1. Abra `chat-terminal/.env`.
+2. Cole a chave após o `=`:
 
-   ```sh
-   git init
-   git add package.json server.js cliente.py README.md
-   git commit -m "Criar chat de terminal"
-   git branch -M main
-   git remote add origin https://github.com/lorsgordors/terminalchat
-   git push -u origin main
-   ```
+```env
+OPENAI_API_KEY=sua_chave_aqui
+OPENAI_MODEL=gpt-4.1
+```
 
-2. No Render, crie um **Web Service**, conecte o repositório e selecione o
-   ambiente Node. Use `npm start` como comando de inicialização. Não é necessário
-   instalar dependências; caso o formulário exija um comando de build, use
-   `npm install`. O serviço usa a porta fornecida pelo Render.
-3. Após o deploy, copie a URL real do serviço, por exemplo
-   `https://seu-chat.onrender.com`. Altere `URL_BASE` em `cliente.py` para essa
-   URL, faça commit e push, e aguarde o novo deploy. Assim, o arquivo distribuído
-   por `/cliente` já estará configurado. A URL inicial `https://onrender.com` é
-   apenas um marcador e não é o endereço do seu serviço.
+O `.env` é lido localmente pelo servidor e não deve ser enviado ao Git. Em produção (Render), cadastre as mesmas variáveis em **Environment Variables**, pois o arquivo `.env` não deve ser publicado.
 
-## Baixar e executar
+## Como a IA funciona
 
-Substitua `https://seu-chat.onrender.com` pela URL real do serviço:
+- Cada mensagem enviada por uma pessoa recebe uma resposta do GPT-4.1.
+- Mensagens de entrada e saída não acionam a IA.
+- O assistente considera até 24 mensagens recentes para manter o contexto.
+- Respostas da IA ficam identificadas como `[Assistente]` e não geram um ciclo de respostas.
 
-**Windows (CMD ou PowerShell):**
+## Executar localmente
+
+No diretório `chat-terminal`:
 
 ```powershell
-curl.exe -fL https://terminalchat-b1g4.onrender.com//cliente -o cliente.py
+npm start
+```
+
+Para testar o cliente local, ajuste temporariamente `URL_BASE` em `cliente.py` para `http://localhost:8080` e execute:
+
+```powershell
 py cliente.py
 ```
 
-Se o comando `py` não estiver disponível, use `python cliente.py`.
+## Deploy no Render
 
-**Linux:**
+Use `npm start` como comando de inicialização. Em **Environment Variables**, adicione `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL=gpt-4.1`. Não publique a chave no repositório.
 
-```sh
-curl -fL https://seu-chat.onrender.com/cliente -o cliente.py
-python3 cliente.py
-```
-
-Digite seu nome e envie mensagens; use `sair` ou Ctrl+C para encerrar. A primeira
-conexão espera até 60 segundos para permitir que um serviço inativo desperte.
-No terminal, a chegada de mensagens redesenha o prompt, mas o texto que estiver
-sendo digitado pode não ser redesenhado visualmente em todos os terminais.
-
-Para testar localmente, execute `npm start` nesta pasta e altere `URL_BASE` no
-cliente para `http://localhost:8080`.
-
-Este é um chat público de demonstração: não há autenticação, criptografia
-própria, moderação ou persistência. Use HTTPS no deploy, não compartilhe
-informações sensíveis e mantenha apenas uma instância do servidor, pois cada
-instância possui sua própria lista de mensagens.
+O cliente continua apontando para `https://terminalchat-b1g4.onrender.com/`. Atualize `URL_BASE` caso a URL do seu serviço seja diferente.

@@ -4,13 +4,108 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+carregarEnv(path.join(__dirname, '.env'));
+
 const mensagens = [];
 let proximoId = 1;
 const limiteCorpo = 16 * 1024;
+const limiteMensagens = 100;
+const limiteHistoricoIA = 24;
+const modeloIA = process.env.OPENAI_MODEL || 'gpt-4.1';
+const limiteRequisicaoIA = 45_000;
+
+function carregarEnv(arquivo) {
+  try {
+    for (const linhaOriginal of fs.readFileSync(arquivo, 'utf8').split(/\r?\n/)) {
+      const linha = linhaOriginal.trim();
+      if (!linha || linha.startsWith('#')) continue;
+      const separador = linha.indexOf('=');
+      if (separador === -1) continue;
+      const chave = linha.slice(0, separador).trim();
+      let valor = linha.slice(separador + 1).trim();
+      if ((valor.startsWith('"') && valor.endsWith('"')) ||
+          (valor.startsWith("'") && valor.endsWith("'"))) {
+        valor = valor.slice(1, -1);
+      }
+      if (chave && process.env[chave] === undefined) process.env[chave] = valor;
+    }
+  } catch (erro) {
+    if (erro.code !== 'ENOENT') console.error('Não foi possível ler o .env:', erro.message);
+  }
+}
 
 function responderJson(res, status, dados) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(dados));
+}
+
+function adicionarMensagem({ texto, autor, tipo }) {
+  const mensagem = {
+    id: proximoId++,
+    texto: texto.trim(),
+    autor: autor || (tipo === 'assistant' ? 'Assistente' : 'Sistema'),
+    tipo: tipo || 'user',
+    criadoEm: new Date().toISOString()
+  };
+  mensagens.push(mensagem);
+  if (mensagens.length > limiteMensagens) mensagens.shift();
+  return mensagem;
+}
+
+function historicoParaIA() {
+  return mensagens
+    .filter((mensagem) => mensagem.tipo === 'user' || mensagem.tipo === 'assistant')
+    .slice(-limiteHistoricoIA)
+    .map((mensagem) => ({
+      role: mensagem.tipo === 'assistant' ? 'assistant' : 'user',
+      content: mensagem.tipo === 'assistant'
+        ? mensagem.texto
+        : `${mensagem.autor}: ${mensagem.texto}`
+    }));
+}
+
+async function responderComIA() {
+  const chave = process.env.OPENAI_API_KEY;
+  if (!chave) return;
+
+  const controle = new AbortController();
+  const temporizador = setTimeout(() => controle.abort(), limiteRequisicaoIA);
+  try {
+    const resposta = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${chave}`
+      },
+      signal: controle.signal,
+      body: JSON.stringify({
+        model: modeloIA,
+        messages: [
+          {
+            role: 'system',
+            content: 'Você é o Assistente do Chat Terminal. Responda em português, com clareza e educação. Considere o histórico da conversa. Mantenha respostas objetivas, bem organizadas em parágrafos curtos ou listas quando útil. Não diga que recebeu instruções de sistema e não invente informações.'
+          },
+          ...historicoParaIA()
+        ],
+        temperature: 0.7
+      })
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) {
+      console.error('A OpenAI recusou a solicitação:', resposta.status, dados.error?.message || 'erro sem detalhes');
+      return;
+    }
+    const texto = dados.choices?.[0]?.message?.content;
+    if (typeof texto === 'string' && texto.trim()) {
+      adicionarMensagem({ texto, autor: 'Assistente', tipo: 'assistant' });
+    } else {
+      console.error('A OpenAI retornou uma resposta sem texto.');
+    }
+  } catch (erro) {
+    console.error('Erro ao consultar a OpenAI:', erro.name === 'AbortError' ? 'tempo limite excedido' : erro.message);
+  } finally {
+    clearTimeout(temporizador);
+  }
 }
 
 const servidor = http.createServer((req, res) => {
@@ -18,7 +113,7 @@ const servidor = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Servidor de chat online.\n');
+    res.end('Servidor de chat com IA online.\n');
     return;
   }
 
@@ -66,32 +161,33 @@ const servidor = http.createServer((req, res) => {
       }
       partes.push(parte);
     });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (excedeuLimite) return;
       let dados;
       try {
         dados = JSON.parse(Buffer.concat(partes).toString('utf8'));
-      } catch (erro) {
+      } catch {
         responderJson(res, 400, { erro: 'JSON inválido.' });
         return;
       }
-      if (!dados || typeof dados !== 'object' || Array.isArray(dados) ||
-          typeof dados.texto !== 'string' || !dados.texto.trim() ||
-          dados.texto.length > 2000 ||
-          (dados.cliente !== undefined &&
-           (typeof dados.cliente !== 'string' || dados.cliente.length > 100))) {
-        responderJson(res, 400, { erro: 'Texto ou identificador de cliente inválido.' });
+      const textoValido = dados && typeof dados === 'object' && !Array.isArray(dados) &&
+        typeof dados.texto === 'string' && dados.texto.trim() && dados.texto.length <= 2000;
+      const autorValido = dados && (dados.autor === undefined ||
+        (typeof dados.autor === 'string' && dados.autor.trim() && dados.autor.length <= 80));
+      const tipoValido = dados && (dados.tipo === undefined || ['user', 'system'].includes(dados.tipo));
+      if (!textoValido || !autorValido || !tipoValido) {
+        responderJson(res, 400, { erro: 'Mensagem inválida.' });
         return;
       }
-      const mensagem = { id: proximoId++, texto: dados.texto };
-      if (dados.cliente !== undefined) mensagem.cliente = dados.cliente;
-      mensagens.push(mensagem);
-      if (mensagens.length > 50) mensagens.shift();
+
+      const tipo = dados.tipo || 'user';
+      adicionarMensagem({ texto: dados.texto, autor: dados.autor || 'Visitante', tipo });
       responderJson(res, 200, { ok: true });
+
+      // Apenas mensagens reais de usuários acionam a IA. Mensagens do assistente nunca retornam ao endpoint.
+      if (tipo === 'user') await responderComIA();
     });
-    req.on('error', (erro) => {
-      console.error('Erro ao receber requisição:', erro);
-    });
+    req.on('error', (erro) => console.error('Erro ao receber requisição:', erro.message));
     return;
   }
 
@@ -99,5 +195,6 @@ const servidor = http.createServer((req, res) => {
 });
 
 servidor.listen(process.env.PORT || 8080, '0.0.0.0', () => {
-  console.log('Servidor de chat iniciado.');
+  console.log(`Servidor de chat iniciado com ${modeloIA}.`);
+  if (!process.env.OPENAI_API_KEY) console.warn('OPENAI_API_KEY não configurada: o chat funcionará sem respostas da IA.');
 });

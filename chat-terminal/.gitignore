@@ -1,0 +1,7 @@
+# Segredos locais
+.env
+
+# Ambientes e caches
+.venv/
+__pycache__/
+*.pyc
