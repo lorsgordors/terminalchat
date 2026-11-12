@@ -35,6 +35,12 @@ def enviar(texto, autor, cliente, tipo="user"):
         raise ValueError("Resposta inesperada ao enviar mensagem")
 
 
+def limpar_chat(autor):
+    resposta = requisicao("/limpar", {"autor": autor})
+    if not isinstance(resposta, dict) or resposta.get("ok") is not True:
+        raise ValueError("Resposta inesperada ao limpar o chat")
+
+
 def obter_mensagens(desde):
     mensagens = requisicao("/mensagens?desde=" + str(desde))
     if not isinstance(mensagens, list):
@@ -109,7 +115,7 @@ def main():
 
     cliente = os.urandom(16).hex()
     print("\n" + "═" * LARGURA)
-    print("  CHAT TERMINAL  •  Digite 'sair' para encerrar")
+    print("  CHAT TERMINAL  •  /limpar limpa o chat  •  sair encerra")
     print("═" * LARGURA)
     if mensagens:
         print("\nCONVERSA RECENTE")
@@ -131,6 +137,14 @@ def main():
             texto = input("\n› ").strip()
             if texto.lower() == "sair":
                 break
+            if texto.lower() == "/limpar":
+                try:
+                    limpar_chat(nome)
+                    os.system("cls" if os.name == "nt" else "clear")
+                    print("Chat limpo. As novas mensagens aparecerão abaixo.")
+                except (OSError, ValueError) as erro:
+                    print("[Não foi possível limpar] " + str(erro), file=sys.stderr)
+                continue
             if texto:
                 try:
                     enviar(texto, nome, cliente)

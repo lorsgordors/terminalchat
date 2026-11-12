@@ -147,6 +147,33 @@ const servidor = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && url.pathname === '/limpar') {
+    const partes = [];
+    req.on('data', (parte) => partes.push(parte));
+    req.on('end', () => {
+      let dados = {};
+      try {
+        const corpo = Buffer.concat(partes).toString('utf8');
+        dados = corpo ? JSON.parse(corpo) : {};
+      } catch {
+        responderJson(res, 400, { erro: 'JSON inválido.' });
+        return;
+      }
+      if (typeof dados.autor !== 'string' || !dados.autor.trim() || dados.autor.length > 80) {
+        responderJson(res, 400, { erro: 'Autor inválido.' });
+        return;
+      }
+      mensagens.length = 0;
+      adicionarMensagem({
+        texto: `Chat limpo por ${dados.autor.trim()}.`,
+        autor: 'Sistema',
+        tipo: 'system'
+      });
+      responderJson(res, 200, { ok: true });
+    });
+    return;
+  }
+
   if (req.method === 'POST' && url.pathname === '/enviar') {
     const partes = [];
     let tamanho = 0;
