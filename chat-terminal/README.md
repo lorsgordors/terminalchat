@@ -37,7 +37,7 @@ Substitua `https://seu-chat.onrender.com` pela URL real do serviço:
 **Windows (CMD ou PowerShell):**
 
 ```powershell
-curl.exe -fL https://seu-chat.onrender.com/cliente -o cliente.py
+curl.exe -fL https://terminalchat-b1g4.onrender.com//cliente -o cliente.py
 py cliente.py
 ```
 

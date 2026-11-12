@@ -7,7 +7,7 @@ import os
 if os.name == "nt":
     os.system("chcp 65001 > nul")
 
-URL_BASE = "https://onrender.com"
+URL_BASE = "https://terminalchat-b1g4.onrender.com/"
 INTERVALO = 1.5
 TIMEOUT = 60
 
