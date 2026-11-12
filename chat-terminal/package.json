@@ -1,0 +1,9 @@
+{
+  "name": "chat-terminal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chat via terminal com servidor HTTP sem dependencias",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
