@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import urllib.request
+from datetime import datetime
 
 if os.name == "nt":
     os.system("chcp 65001 > nul")
@@ -10,6 +11,7 @@ if os.name == "nt":
 URL_BASE = "https://terminalchat-b1g4.onrender.com/"
 INTERVALO = 1.5
 TIMEOUT = 60
+LARGURA = 68
 
 
 def requisicao(caminho, dados=None):
@@ -25,8 +27,10 @@ def requisicao(caminho, dados=None):
         return json.loads(resposta.read().decode("utf-8"))
 
 
-def enviar(texto, autor, tipo="user"):
-    resposta = requisicao("/enviar", {"texto": texto, "autor": autor, "tipo": tipo})
+def enviar(texto, autor, cliente, tipo="user"):
+    resposta = requisicao(
+        "/enviar", {"texto": texto, "autor": autor, "cliente": cliente, "tipo": tipo}
+    )
     if not isinstance(resposta, dict) or resposta.get("ok") is not True:
         raise ValueError("Resposta inesperada ao enviar mensagem")
 
@@ -46,34 +50,50 @@ def obter_mensagens(desde):
     return mensagens
 
 
-def formatar(mensagem):
-    if mensagem.get("tipo") == "assistant":
-        return "\n[Assistente]\n" + mensagem["texto"]
-    if mensagem.get("tipo") == "system":
-        return "\n* " + mensagem["texto"] + " *"
-    return mensagem["autor"] + ": " + mensagem["texto"]
+def horario(mensagem):
+    try:
+        return datetime.fromisoformat(mensagem.get("criadoEm", "").replace("Z", "+00:00")).astimezone().strftime("%H:%M")
+    except (ValueError, TypeError):
+        return "--:--"
 
 
-def acompanhar(ultimo_id, encerrando):
+def formatar(mensagem, cliente_atual=None):
+    tipo = mensagem.get("tipo", "user")
+    if tipo == "system":
+        return "\n  • " + mensagem["texto"]
+
+    eh_propria = cliente_atual and mensagem.get("cliente") == cliente_atual
+    autor = "Você" if eh_propria else ("Assistente" if tipo == "assistant" else mensagem["autor"])
+    titulo = "[" + horario(mensagem) + "] " + autor
+    linhas = mensagem["texto"].splitlines() or [""]
+    corpo = "\n".join("  " + linha for linha in linhas)
+    return "\n" + titulo + "\n" + corpo
+
+
+def imprimir(mensagem, cliente_atual=None, prompt=True):
+    saida = formatar(mensagem, cliente_atual)
+    if prompt:
+        print("\r" + saida + "\n\n› ", end="", flush=True)
+    else:
+        print(saida)
+
+
+def acompanhar(ultimo_id, cliente, encerrando):
     while not encerrando.wait(INTERVALO):
         try:
             mensagens = obter_mensagens(ultimo_id)
             for mensagem in mensagens:
                 ultimo_id = max(ultimo_id, mensagem["id"])
-                print("\r" + formatar(mensagem) + "\nVocê: ", end="", flush=True)
+                if mensagem.get("cliente") != cliente:
+                    imprimir(mensagem, cliente)
         except (OSError, ValueError) as erro:
-            print("\rErro ao buscar mensagens: " + str(erro) + "\nVocê: ", end="", flush=True)
+            print("\r\n[Erro de conexão] " + str(erro) + "\n\n› ", end="", flush=True)
 
 
 def main():
     try:
         mensagens = obter_mensagens(0)
         ultimo_id = max((mensagem["id"] for mensagem in mensagens), default=0)
-        if mensagens:
-            print("\n--- Conversa anterior ---")
-            for mensagem in mensagens:
-                print(formatar(mensagem))
-            print("--------------------------\n")
     except (OSError, ValueError) as erro:
         print("Não foi possível conectar ao servidor: " + str(erro), file=sys.stderr)
         return 1
@@ -87,33 +107,43 @@ def main():
         print("O nome não pode ficar vazio.", file=sys.stderr)
         return 1
 
+    cliente = os.urandom(16).hex()
+    print("\n" + "═" * LARGURA)
+    print("  CHAT TERMINAL  •  Digite 'sair' para encerrar")
+    print("═" * LARGURA)
+    if mensagens:
+        print("\nCONVERSA RECENTE")
+        for mensagem in mensagens:
+            imprimir(mensagem, cliente, prompt=False)
+        print("\n" + "─" * LARGURA)
+
     try:
-        enviar(nome + " entrou no chat.", nome, "system")
+        enviar(nome + " entrou no chat.", nome, cliente, "system")
     except (OSError, ValueError) as erro:
         print("Não foi possível anunciar a entrada: " + str(erro), file=sys.stderr)
         return 1
 
     encerrando = threading.Event()
-    thread = threading.Thread(target=acompanhar, args=(ultimo_id, encerrando), daemon=True)
+    thread = threading.Thread(target=acompanhar, args=(ultimo_id, cliente, encerrando), daemon=True)
     thread.start()
     try:
         while True:
-            texto = input("Você: ").strip()
+            texto = input("\n› ").strip()
             if texto.lower() == "sair":
                 break
             if texto:
                 try:
-                    enviar(texto, nome)
+                    enviar(texto, nome, cliente)
                 except (OSError, ValueError) as erro:
-                    print("Não foi possível enviar a mensagem: " + str(erro), file=sys.stderr)
+                    print("[Não foi possível enviar] " + str(erro), file=sys.stderr)
     except (KeyboardInterrupt, EOFError):
         print()
     finally:
         encerrando.set()
         try:
-            enviar(nome + " saiu do chat.", nome, "system")
-        except (OSError, ValueError) as erro:
-            print("Não foi possível anunciar a saída: " + str(erro), file=sys.stderr)
+            enviar(nome + " saiu do chat.", nome, cliente, "system")
+        except (OSError, ValueError):
+            pass
     return 0
 
 

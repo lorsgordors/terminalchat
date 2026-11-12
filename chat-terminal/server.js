@@ -39,7 +39,7 @@ function responderJson(res, status, dados) {
   res.end(JSON.stringify(dados));
 }
 
-function adicionarMensagem({ texto, autor, tipo }) {
+function adicionarMensagem({ texto, autor, cliente, tipo }) {
   const mensagem = {
     id: proximoId++,
     texto: texto.trim(),
@@ -47,6 +47,7 @@ function adicionarMensagem({ texto, autor, tipo }) {
     tipo: tipo || 'user',
     criadoEm: new Date().toISOString()
   };
+  if (cliente) mensagem.cliente = cliente;
   mensagens.push(mensagem);
   if (mensagens.length > limiteMensagens) mensagens.shift();
   return mensagem;
@@ -174,14 +175,21 @@ const servidor = http.createServer((req, res) => {
         typeof dados.texto === 'string' && dados.texto.trim() && dados.texto.length <= 2000;
       const autorValido = dados && (dados.autor === undefined ||
         (typeof dados.autor === 'string' && dados.autor.trim() && dados.autor.length <= 80));
+      const clienteValido = dados && (dados.cliente === undefined ||
+        (typeof dados.cliente === 'string' && /^[a-f0-9]{16,64}$/i.test(dados.cliente)));
       const tipoValido = dados && (dados.tipo === undefined || ['user', 'system'].includes(dados.tipo));
-      if (!textoValido || !autorValido || !tipoValido) {
+      if (!textoValido || !autorValido || !clienteValido || !tipoValido) {
         responderJson(res, 400, { erro: 'Mensagem inválida.' });
         return;
       }
 
       const tipo = dados.tipo || 'user';
-      adicionarMensagem({ texto: dados.texto, autor: dados.autor || 'Visitante', tipo });
+      adicionarMensagem({
+        texto: dados.texto,
+        autor: dados.autor || 'Visitante',
+        cliente: dados.cliente,
+        tipo
+      });
       responderJson(res, 200, { ok: true });
 
       // Apenas mensagens reais de usuários acionam a IA. Mensagens do assistente nunca retornam ao endpoint.
