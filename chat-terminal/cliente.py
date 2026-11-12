@@ -61,6 +61,11 @@ def main():
     try:
         mensagens = obter_mensagens(0)
         ultimo_id = max((mensagem["id"] for mensagem in mensagens), default=0)
+        if mensagens:
+            print("--- Mensagens anteriores ---")
+            for mensagem in mensagens:
+                print(mensagem["texto"])
+            print("----------------------------")
     except (OSError, ValueError) as erro:
         print("Não foi possível conectar ao servidor: " + str(erro), file=sys.stderr)
         return 1
